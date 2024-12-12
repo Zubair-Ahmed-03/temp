@@ -65,5 +65,8 @@ elif mode == "Receiver":
         else:
             st.error("Please enter your name.")
 
-# Close the database connection on app exit
-st.on_event("shutdown", lambda: conn.close())
+# Ensure database connection closes cleanly
+if 'db_connection' not in st.session_state:
+    st.session_state.db_connection = conn
+else:
+    conn.close()
