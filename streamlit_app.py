@@ -14,8 +14,8 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY,
-        sender TEXT,
-        receiver TEXT,
+        sender_key BLOB,
+        receiver_key BLOB,
         nonce BLOB,
         tag BLOB,
         ciphertext BLOB,
@@ -84,50 +84,47 @@ if "keys" not in st.session_state:
         "rsa_public": rsa_public_key
     }
 
-def store_message(sender, receiver, nonce, tag, ciphertext, enc_aes_key):
+def store_message(sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key):
     conn = sqlite3.connect("messages.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO messages (sender, receiver, nonce, tag, ciphertext, enc_aes_key) VALUES (?, ?, ?, ?, ?, ?)",
-                   (sender, receiver, nonce, tag, ciphertext, enc_aes_key))
+    cursor.execute("INSERT INTO messages (sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key) VALUES (?, ?, ?, ?, ?, ?)",
+                   (sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key))
     conn.commit()
     conn.close()
 
-def fetch_messages(receiver):
+def fetch_messages(receiver_key):
     conn = sqlite3.connect("messages.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT sender, nonce, tag, ciphertext, enc_aes_key FROM messages WHERE receiver = ?", (receiver,))
+    cursor.execute("SELECT sender_key, nonce, tag, ciphertext, enc_aes_key FROM messages WHERE receiver_key = ?", (receiver_key,))
     messages = cursor.fetchall()
     conn.close()
     return messages
 
 if role == "Sender":
-    receiver = st.text_input("Enter receiver's username:")
+    receiver_key = st.text_area("Enter receiver's public key:")
     message = st.text_area("Enter your message:")
 
     if st.button("Send Message"):
-        ecc_public_key = st.session_state.keys["ecc_public"]
-        rsa_public_key = st.session_state.keys["rsa_public"]
-
-        nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, ecc_public_key, rsa_public_key)
-        store_message("Sender", receiver, nonce, tag, ciphertext, enc_aes_key)
-
+        sender_key = base64.b64encode(st.session_state.keys["ecc_public"].x.to_bytes(32, 'big') + st.session_state.keys["ecc_public"].y.to_bytes(32, 'big'))
+        nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, st.session_state.keys["ecc_public"], st.session_state.keys["rsa_public"])
+        store_message(sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key)
         st.success("Message sent successfully!")
 
 elif role == "Receiver":
-    username = st.text_input("Enter your username:")
+    receiver_key = base64.b64encode(st.session_state.keys["ecc_public"].x.to_bytes(32, 'big') + st.session_state.keys["ecc_public"].y.to_bytes(32, 'big'))
 
     if st.button("Fetch Messages"):
-        messages = fetch_messages(username)
+        messages = fetch_messages(receiver_key)
 
         if messages:
-            for sender, nonce, tag, ciphertext, enc_aes_key in messages:
+            for sender_key, nonce, tag, ciphertext, enc_aes_key in messages:
                 enc_msg = (nonce, tag, ciphertext, enc_aes_key)
                 ecc_private_key = st.session_state.keys["ecc_private"]
                 rsa_private_key = st.session_state.keys["rsa_private"]
 
                 try:
                     plaintext = decrypt_message(enc_msg, ecc_private_key, rsa_private_key)
-                    st.write(f"Message from {sender}: {plaintext}")
+                    st.write(f"Message from {sender_key.decode('utf-8')}: {plaintext}")
                 except Exception as e:
                     st.error("Failed to decrypt a message.")
         else:
