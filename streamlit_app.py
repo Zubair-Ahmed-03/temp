@@ -77,7 +77,7 @@ role = st.radio("Select your role:", ("Sender", "Receiver"))
 if "keys" not in st.session_state:
     ecc_private_key, ecc_public_key = generate_ecc_key_pair()
     rsa_private_key, rsa_public_key = generate_rsa_key_pair()
-    st.session_state.keys = {
+    st.session_state["keys"] = {
         "ecc_private": ecc_private_key,
         "ecc_public": ecc_public_key,
         "rsa_private": rsa_private_key,
@@ -112,22 +112,26 @@ if role == "Sender":
         st.success("Message sent successfully!")
 
 elif role == "Receiver":
-    ecc_public_key = st.session_state.keys["ecc_public"]
-    receiver_key = base64.b64encode(ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')).decode('utf-8')
+    keys = st.session_state.get("keys")
+    if not keys:
+        st.error("Keys are not initialized. Please refresh the app.")
+    else:
+        ecc_public_key = keys["ecc_public"]
+        receiver_key = base64.b64encode(ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')).decode('utf-8')
 
-    if st.button("Fetch Messages"):
-        messages = fetch_messages(receiver_key)
+        if st.button("Fetch Messages"):
+            messages = fetch_messages(receiver_key)
 
-        if messages:
-            for sender_key, nonce, tag, ciphertext, enc_aes_key in messages:
-                enc_msg = (nonce, tag, ciphertext, enc_aes_key)
-                ecc_private_key = st.session_state.keys["ecc_private"]
-                rsa_private_key = st.session_state.keys["rsa_private"]
+            if messages:
+                for sender_key, nonce, tag, ciphertext, enc_aes_key in messages:
+                    enc_msg = (nonce, tag, ciphertext, enc_aes_key)
+                    ecc_private_key = keys["ecc_private"]
+                    rsa_private_key = keys["rsa_private"]
 
-                try:
-                    plaintext = decrypt_message(enc_msg, ecc_private_key, rsa_private_key)
-                    st.write(f"Message from {sender_key}: {plaintext}")
-                except Exception as e:
-                    st.error("Failed to decrypt a message.")
-        else:
-            st.info("No messages found.")
+                    try:
+                        plaintext = decrypt_message(enc_msg, ecc_private_key, rsa_private_key)
+                        st.write(f"Message from {sender_key}: {plaintext}")
+                    except Exception as e:
+                        st.error("Failed to decrypt a message.")
+            else:
+                st.info("No messages found.")
