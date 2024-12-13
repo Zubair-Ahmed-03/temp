@@ -105,13 +105,15 @@ if role == "Sender":
     message = st.text_area("Enter your message:")
 
     if st.button("Send Message"):
-        sender_key = base64.b64encode(st.session_state.keys["ecc_public"].x.to_bytes(32, 'big') + st.session_state.keys["ecc_public"].y.to_bytes(32, 'big'))
+        ecc_public_key = st.session_state.keys["ecc_public"]
+        sender_key = base64.b64encode(ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')).decode('utf-8')
         nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, st.session_state.keys["ecc_public"], st.session_state.keys["rsa_public"])
         store_message(sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key)
         st.success("Message sent successfully!")
 
 elif role == "Receiver":
-    receiver_key = base64.b64encode(st.session_state.keys["ecc_public"].x.to_bytes(32, 'big') + st.session_state.keys["ecc_public"].y.to_bytes(32, 'big'))
+    ecc_public_key = st.session_state.keys["ecc_public"]
+    receiver_key = base64.b64encode(ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')).decode('utf-8')
 
     if st.button("Fetch Messages"):
         messages = fetch_messages(receiver_key)
@@ -124,7 +126,7 @@ elif role == "Receiver":
 
                 try:
                     plaintext = decrypt_message(enc_msg, ecc_private_key, rsa_private_key)
-                    st.write(f"Message from {sender_key.decode('utf-8')}: {plaintext}")
+                    st.write(f"Message from {sender_key}: {plaintext}")
                 except Exception as e:
                     st.error("Failed to decrypt a message.")
         else:
