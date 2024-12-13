@@ -3,6 +3,7 @@ import sqlite3
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES, PKCS1_OAEP
 from tinyec import registry
+from tinyec.ec import Point
 import hashlib
 import secrets
 import base64
@@ -114,7 +115,9 @@ if role == "Sender":
 
             # Decode receiver's keys
             receiver_ecc_public_key_bytes = base64.b64decode(receiver_key_input)
-            receiver_ecc_public_key = registry.get_curve('brainpoolP256r1').curve.decode_point(receiver_ecc_public_key_bytes)
+            curve = registry.get_curve('brainpoolP256r1')
+            receiver_ecc_public_key = Point(curve, int.from_bytes(receiver_ecc_public_key_bytes[:32], 'big'),
+                                            int.from_bytes(receiver_ecc_public_key_bytes[32:], 'big'))
             receiver_rsa_public_key = base64.b64decode(receiver_rsa_key_input)
 
             nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, receiver_ecc_public_key, receiver_rsa_public_key)
@@ -136,10 +139,12 @@ elif role == "Receiver":
         rsa_public_key_display = base64.b64encode(keys["rsa_public"]).decode('utf-8')
 
         st.write("Your ECC Public Key:")
-        st.text(public_key_display)
+        st.code(public_key_display)
+        st.button("Copy ECC Public Key", on_click=lambda: st.experimental_set_query_params(key=public_key_display))
 
         st.write("Your RSA Public Key:")
-        st.text(rsa_public_key_display)
+        st.code(rsa_public_key_display)
+        st.button("Copy RSA Public Key", on_click=lambda: st.experimental_set_query_params(key=rsa_public_key_display))
 
         receiver_key = public_key_display
 
