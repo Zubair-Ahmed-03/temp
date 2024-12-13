@@ -93,14 +93,15 @@ st.sidebar.header("Key Management")
 if "keys" not in st.session_state:
     ecc_private_key, ecc_public_key = generate_ecc_key_pair()
     rsa_private_key, rsa_public_key = generate_rsa_key_pair()
-    st.session_state.keys = {
+    st.session_state["keys"] = {
         "ecc_private_key": ecc_private_key,
         "ecc_public_key": ecc_public_key,
         "rsa_private_key": rsa_private_key,
         "rsa_public_key": rsa_public_key
     }
-st.sidebar.write("ECC Public Key:", st.session_state.keys["ecc_public_key"])
-st.sidebar.write("RSA Public Key:", st.session_state.keys["rsa_public_key"].decode()[:50] + "...")
+keys = st.session_state["keys"]
+st.sidebar.write("ECC Public Key:", keys["ecc_public_key"])
+st.sidebar.write("RSA Public Key:", keys["rsa_public_key"].decode()[:50] + "...")
 
 mode = st.radio("Select Mode", ("Sender", "Receiver"))
 
