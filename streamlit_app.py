@@ -2,13 +2,32 @@ import streamlit as st
 import sqlite3
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES, PKCS1_OAEP
-from Crypto.Random import get_random_bytes
 from tinyec import registry
 import hashlib
 import secrets
-import time
+import base64
 
-# ECC and RSA key generation functions
+# Database setup
+def init_db():
+    conn = sqlite3.connect("messages.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY,
+        sender TEXT,
+        receiver TEXT,
+        nonce BLOB,
+        tag BLOB,
+        ciphertext BLOB,
+        enc_aes_key BLOB
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# ECC and RSA key generation
 def generate_ecc_key_pair():
     curve = registry.get_curve('brainpoolP256r1')
     private_key = secrets.randbelow(curve.field.n)
@@ -17,16 +36,14 @@ def generate_ecc_key_pair():
 
 def generate_rsa_key_pair():
     key = RSA.generate(2048)
-    private_key = key.export_key()
-    public_key = key.publickey().export_key()
-    return private_key, public_key
+    return key.export_key(), key.publickey().export_key()
 
 def ecc_point_to_256_bit_key(point):
     sha = hashlib.sha256(int.to_bytes(point.x, 32, 'big'))
     sha.update(int.to_bytes(point.y, 32, 'big'))
     return sha.digest()
 
-# Encryption and decryption functions
+# Encryption
 def encrypt_message(msg, ecc_public_key, rsa_public_key):
     curve = registry.get_curve('brainpoolP256r1')
     ecc_private_key = secrets.randbelow(curve.field.n)
@@ -39,8 +56,9 @@ def encrypt_message(msg, ecc_public_key, rsa_public_key):
     cipher_rsa = PKCS1_OAEP.new(RSA.import_key(rsa_public_key))
     enc_aes_key = cipher_rsa.encrypt(secret_key)
 
-    return (cipher_aes.nonce, tag, ciphertext, enc_aes_key)
+    return cipher_aes.nonce, tag, ciphertext, enc_aes_key
 
+# Decryption
 def decrypt_message(enc_msg, ecc_private_key, rsa_private_key):
     nonce, tag, ciphertext, enc_aes_key = enc_msg
 
@@ -49,107 +67,68 @@ def decrypt_message(enc_msg, ecc_private_key, rsa_private_key):
 
     cipher_aes = AES.new(aes_key, AES.MODE_GCM, nonce=nonce)
     plaintext = cipher_aes.decrypt_and_verify(ciphertext, tag)
+
     return plaintext.decode('utf-8')
 
-# SQLite setup
-conn = sqlite3.connect('messages.db', check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sender TEXT,
-    receiver TEXT,
-    encrypted_message BLOB,
-    nonce BLOB,
-    tag BLOB,
-    enc_aes_key BLOB,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-''')
-conn.commit()
-
-def send_message(sender, receiver, encrypted_message):
-    nonce, tag, ciphertext, enc_aes_key = encrypted_message
-    cursor.execute("""
-        INSERT INTO messages (sender, receiver, encrypted_message, nonce, tag, enc_aes_key)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (sender, receiver, ciphertext, nonce, tag, enc_aes_key))
-    conn.commit()
-
-def get_messages(receiver):
-    cursor.execute("""
-        SELECT sender, encrypted_message, nonce, tag, enc_aes_key, timestamp
-        FROM messages
-        WHERE receiver = ?
-        ORDER BY timestamp DESC
-    """, (receiver,))
-    return cursor.fetchall()
-
-# Streamlit app setup
+# Streamlit app
 st.title("Secure Messaging App")
+role = st.radio("Select your role:", ("Sender", "Receiver"))
 
-# Generate keys for demonstration purposes (in a real app, keys should be securely managed)
-st.sidebar.header("Key Management")
 if "keys" not in st.session_state:
     ecc_private_key, ecc_public_key = generate_ecc_key_pair()
     rsa_private_key, rsa_public_key = generate_rsa_key_pair()
-    st.session_state["keys"] = {
-        "ecc_private_key": ecc_private_key,
-        "ecc_public_key": ecc_public_key,
-        "rsa_private_key": rsa_private_key,
-        "rsa_public_key": rsa_public_key
+    st.session_state.keys = {
+        "ecc_private": ecc_private_key,
+        "ecc_public": ecc_public_key,
+        "rsa_private": rsa_private_key,
+        "rsa_public": rsa_public_key
     }
-keys = st.session_state["keys"]
-st.sidebar.write("ECC Public Key:", keys["ecc_public_key"])
-st.sidebar.write("RSA Public Key:", keys["rsa_public_key"].decode()[:50] + "...")
 
-mode = st.radio("Select Mode", ("Sender", "Receiver"))
+def store_message(sender, receiver, nonce, tag, ciphertext, enc_aes_key):
+    conn = sqlite3.connect("messages.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO messages (sender, receiver, nonce, tag, ciphertext, enc_aes_key) VALUES (?, ?, ?, ?, ?, ?)",
+                   (sender, receiver, nonce, tag, ciphertext, enc_aes_key))
+    conn.commit()
+    conn.close()
 
-if mode == "Sender":
-    st.header("Send a Secure Message")
-    sender = st.text_input("Your Name")
-    receiver = st.text_input("Receiver's Name")
-    message = st.text_area("Message")
+def fetch_messages(receiver):
+    conn = sqlite3.connect("messages.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT sender, nonce, tag, ciphertext, enc_aes_key FROM messages WHERE receiver = ?", (receiver,))
+    messages = cursor.fetchall()
+    conn.close()
+    return messages
+
+if role == "Sender":
+    receiver = st.text_input("Enter receiver's username:")
+    message = st.text_area("Enter your message:")
 
     if st.button("Send Message"):
-        if sender and receiver and message:
-            encrypted_msg = encrypt_message(
-                message, 
-                st.session_state.keys["ecc_public_key"], 
-                st.session_state.keys["rsa_public_key"]
-            )
-            send_message(sender, receiver, encrypted_msg)
-            st.success("Message sent successfully!")
+        ecc_public_key = st.session_state.keys["ecc_public"]
+        rsa_public_key = st.session_state.keys["rsa_public"]
+
+        nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, ecc_public_key, rsa_public_key)
+        store_message("Sender", receiver, nonce, tag, ciphertext, enc_aes_key)
+
+        st.success("Message sent successfully!")
+
+elif role == "Receiver":
+    username = st.text_input("Enter your username:")
+
+    if st.button("Fetch Messages"):
+        messages = fetch_messages(username)
+
+        if messages:
+            for sender, nonce, tag, ciphertext, enc_aes_key in messages:
+                enc_msg = (nonce, tag, ciphertext, enc_aes_key)
+                ecc_private_key = st.session_state.keys["ecc_private"]
+                rsa_private_key = st.session_state.keys["rsa_private"]
+
+                try:
+                    plaintext = decrypt_message(enc_msg, ecc_private_key, rsa_private_key)
+                    st.write(f"Message from {sender}: {plaintext}")
+                except Exception as e:
+                    st.error("Failed to decrypt a message.")
         else:
-            st.error("Please fill in all fields.")
-
-elif mode == "Receiver":
-    st.header("View Your Messages")
-    receiver = st.text_input("Your Name")
-
-    if st.button("Refresh Messages"):
-        if receiver:
-            messages = get_messages(receiver)
-            if messages:
-                for msg in messages:
-                    sender, ciphertext, nonce, tag, enc_aes_key, timestamp = msg
-                    encrypted_msg = (nonce, tag, ciphertext, enc_aes_key)
-                    try:
-                        plaintext = decrypt_message(
-                            encrypted_msg, 
-                            st.session_state.keys["ecc_private_key"], 
-                            st.session_state.keys["rsa_private_key"]
-                        )
-                        st.markdown(f"**From:** {sender}")
-                        st.markdown(f"**Message:** {plaintext}")
-                        st.markdown(f"_Received at: {timestamp}_")
-                        st.markdown("---")
-                    except Exception as e:
-                        st.error(f"Failed to decrypt a message: {e}")
-            else:
-                st.info("No messages found.")
-        else:
-            st.error("Please enter your name.")
-
-# Ensure database connection closes properly
-st.session_state.db_connection = conn
+            st.info("No messages found.")
