@@ -14,8 +14,8 @@ def init_db():
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY,
-        sender_key BLOB,
-        receiver_key BLOB,
+        sender_key TEXT,
+        receiver_key TEXT,
         nonce BLOB,
         tag BLOB,
         ciphertext BLOB,
@@ -105,11 +105,17 @@ if role == "Sender":
     message = st.text_area("Enter your message:")
 
     if st.button("Send Message"):
-        ecc_public_key = st.session_state.keys["ecc_public"]
-        sender_key = base64.b64encode(ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')).decode('utf-8')
-        nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, st.session_state.keys["ecc_public"], st.session_state.keys["rsa_public"])
-        store_message(sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key)
-        st.success("Message sent successfully!")
+        ecc_public_key = st.session_state["keys"]["ecc_public"]
+        sender_key = base64.b64encode(
+            ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')
+        ).decode('utf-8')
+
+        try:
+            nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, ecc_public_key, st.session_state["keys"]["rsa_public"])
+            store_message(sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key)
+            st.success("Message sent successfully!")
+        except Exception as e:
+            st.error(f"Failed to send message: {e}")
 
 elif role == "Receiver":
     keys = st.session_state.get("keys")
@@ -117,7 +123,14 @@ elif role == "Receiver":
         st.error("Keys are not initialized. Please refresh the app.")
     else:
         ecc_public_key = keys["ecc_public"]
-        receiver_key = base64.b64encode(ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')).decode('utf-8')
+        public_key_display = base64.b64encode(
+            ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')
+        ).decode('utf-8')
+
+        st.write("Your ECC Public Key:")
+        st.text(public_key_display)
+
+        receiver_key = public_key_display
 
         if st.button("Fetch Messages"):
             messages = fetch_messages(receiver_key)
@@ -132,6 +145,6 @@ elif role == "Receiver":
                         plaintext = decrypt_message(enc_msg, ecc_private_key, rsa_private_key)
                         st.write(f"Message from {sender_key}: {plaintext}")
                     except Exception as e:
-                        st.error("Failed to decrypt a message.")
+                        st.error(f"Failed to decrypt a message: {e}")
             else:
                 st.info("No messages found.")
