@@ -139,10 +139,10 @@ elif role == "Receiver":
         rsa_public_key_display = base64.b64encode(keys["rsa_public"]).decode('utf-8')
 
         st.write("Your ECC Public Key:")
-        st.text_area("ECC Public Key", public_key_display, height=50)
+        st.text_area("ECC Public Key", public_key_display)
 
         st.write("Your RSA Public Key:")
-        st.text_area("RSA Public Key", rsa_public_key_display, height=50)
+        st.text_area("RSA Public Key", rsa_public_key_display)
 
         receiver_key = public_key_display
 
@@ -158,8 +158,8 @@ elif role == "Receiver":
                     try:
                         plaintext = decrypt_message(enc_msg, ecc_private_key, rsa_private_key)
                         st.write(f"Message from {sender_key}:")
-                        st.text_area("Ciphertext", base64.b64encode(ciphertext).decode('utf-8'), height=100)
-                        st.text_area("Decrypted Message", plaintext, height=100)
+                        st.text_area("Ciphertext", base64.b64encode(ciphertext).decode('utf-8'))
+                        st.text_area("Decrypted Message", plaintext)
                     except Exception as e:
                         st.error(f"Failed to decrypt a message: {e}")
             else:
