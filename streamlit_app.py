@@ -44,16 +44,16 @@ def ecc_point_to_256_bit_key(point):
     return sha.digest()
 
 # Encryption
-def encrypt_message(msg, ecc_public_key, rsa_public_key):
+def encrypt_message(msg, receiver_ecc_public_key, receiver_rsa_public_key):
     curve = registry.get_curve('brainpoolP256r1')
     ecc_private_key = secrets.randbelow(curve.field.n)
-    shared_ecc_key = ecc_private_key * ecc_public_key
+    shared_ecc_key = ecc_private_key * receiver_ecc_public_key
     secret_key = ecc_point_to_256_bit_key(shared_ecc_key)
 
     cipher_aes = AES.new(secret_key, AES.MODE_GCM)
     ciphertext, tag = cipher_aes.encrypt_and_digest(msg.encode('utf-8'))
 
-    cipher_rsa = PKCS1_OAEP.new(RSA.import_key(rsa_public_key))
+    cipher_rsa = PKCS1_OAEP.new(RSA.import_key(receiver_rsa_public_key))
     enc_aes_key = cipher_rsa.encrypt(secret_key)
 
     return cipher_aes.nonce, tag, ciphertext, enc_aes_key
@@ -101,18 +101,24 @@ def fetch_messages(receiver_key):
     return messages
 
 if role == "Sender":
-    receiver_key = st.text_area("Enter receiver's public key:")
+    receiver_key_input = st.text_area("Enter receiver's ECC Public Key:")
+    receiver_rsa_key_input = st.text_area("Enter receiver's RSA Public Key:")
     message = st.text_area("Enter your message:")
 
     if st.button("Send Message"):
-        ecc_public_key = st.session_state["keys"]["ecc_public"]
-        sender_key = base64.b64encode(
-            ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')
-        ).decode('utf-8')
-
         try:
-            nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, ecc_public_key, st.session_state["keys"]["rsa_public"])
-            store_message(sender_key, receiver_key, nonce, tag, ciphertext, enc_aes_key)
+            ecc_public_key = st.session_state["keys"]["ecc_public"]
+            sender_key = base64.b64encode(
+                ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')
+            ).decode('utf-8')
+
+            # Decode receiver's keys
+            receiver_ecc_public_key_bytes = base64.b64decode(receiver_key_input)
+            receiver_ecc_public_key = registry.get_curve('brainpoolP256r1').curve.decode_point(receiver_ecc_public_key_bytes)
+            receiver_rsa_public_key = base64.b64decode(receiver_rsa_key_input)
+
+            nonce, tag, ciphertext, enc_aes_key = encrypt_message(message, receiver_ecc_public_key, receiver_rsa_public_key)
+            store_message(sender_key, receiver_key_input, nonce, tag, ciphertext, enc_aes_key)
             st.success("Message sent successfully!")
         except Exception as e:
             st.error(f"Failed to send message: {e}")
@@ -127,8 +133,13 @@ elif role == "Receiver":
             ecc_public_key.x.to_bytes(32, 'big') + ecc_public_key.y.to_bytes(32, 'big')
         ).decode('utf-8')
 
+        rsa_public_key_display = base64.b64encode(keys["rsa_public"]).decode('utf-8')
+
         st.write("Your ECC Public Key:")
         st.text(public_key_display)
+
+        st.write("Your RSA Public Key:")
+        st.text(rsa_public_key_display)
 
         receiver_key = public_key_display
 
